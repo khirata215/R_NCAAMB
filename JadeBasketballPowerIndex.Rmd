@@ -1,0 +1,367 @@
+---
+title: "Coach Jade's Basketball Power Index"
+subtitle: "2022-2023 NCAA Men's Basketball"
+author: "Kyle Hirata"
+date: "Updated: `r format(Sys.time(), '%d %B %Y')`"
+output: 
+  html_document:
+    toc: no
+---
+
+<style>
+.main-container {
+    max-width: 1400px;
+    margin-left: auto;
+    margin-right: auto;
+}
+</style>
+
+```{r setup, echo = FALSE, message = FALSE, warning = FALSE, results = 'hide'}
+setwd("C:/Users/khira/OneDrive/Documents/NCAAMB")
+library(tidymodels)
+library(ggplot2)
+library(hoopR)
+library(kableExtra)
+library(DT)
+
+#source("./updateData.R")
+```
+
+```{r LoadData, echo = FALSE, message = FALSE}
+RegularSeasonGameIDs = 
+  readRDS("./NCAAMB_Schedule.rda") %>% 
+  filter(season_type != 3) %>% 
+  distinct(game_id)
+TeamBox = 
+  readRDS("./NCAAMB_TeamBox.rda") %>% 
+  inner_join(RegularSeasonGameIDs, by = c("game_id"))
+Schedule = 
+  readRDS("./NCAAMB_Schedule.rda") %>% 
+  inner_join(RegularSeasonGameIDs, by = c("game_id"))
+ConferenceDirectory = readRDS("./NCAAMB_ConferenceDirectory.rda")
+TeamConferenceDirectory = readRDS("./NCAAMB_TeamConferenceDirectory.rda")
+
+```
+
+```{r OpponentStrength, echo = FALSE, message = FALSE}
+OutOfConferenceRecords = 
+  TeamBox %>%
+  left_join(Schedule, by = c("game_id", "team_id" = "home_id")) %>%
+  left_join(Schedule, by = c("game_id", "team_id" = "away_id")) %>%
+  inner_join(TeamConferenceDirectory, by = c("team_id" = "TeamID", "season.x" = "Season")) %>%
+  filter(coalesce(home_conference_id.x, home_conference_id.y) != coalesce(away_conference_id.x, away_conference_id.y)) %>%
+  transmute(
+    Season = season.x,
+    TeamID = team_id,
+    TeamName = team_short_display_name,
+    ConferenceID,
+    ConferenceName,
+    TeamPower6 = 
+      case_when(
+        ConferenceName == "ACC"           ~ as.numeric(1),
+        ConferenceName == "Big East"      ~ as.numeric(1),
+        ConferenceName == "Big Ten"       ~ as.numeric(1),
+        ConferenceName == "Big 12"        ~ as.numeric(1),
+        ConferenceName == "Pac-12"        ~ as.numeric(1),
+        ConferenceName == 'SEC'           ~ as.numeric(1),
+        ConferenceName == "WCC"           ~ as.numeric(0.5),
+        ConferenceName == "American"      ~ as.numeric(0.5),
+        ConferenceName == "Mountain West" ~ as.numeric(0.5),
+        ConferenceName == "C-USA"         ~ as.numeric(0.5),
+        ConferenceName == "A 10"          ~ as.numeric(0.5),
+                                     TRUE ~ as.numeric(0)
+      ),
+    home_away,
+    home_winner = coalesce(home_winner.x, home_winner.y),
+    home_score = coalesce(home_score.x, home_score.y),
+    away_score = coalesce(away_score.x, away_score.y),
+    TeamWin = 
+      case_when(
+        team_short_display_name == coalesce(home_short_display_name.x, home_short_display_name.y) & coalesce(home_winner.x, home_winner.y) == TRUE ~ 1,
+        team_short_display_name == coalesce(away_short_display_name.x, away_short_display_name.y) & coalesce(away_winner.x, away_winner.y) == TRUE ~ 1,
+        TRUE ~ 0
+        ),
+    opponent_name
+    ) %>%
+  group_by(
+    Season,
+    ConferenceID,
+    ConferenceName,
+    Power6 = TeamPower6
+  ) %>%
+  summarise(
+    OutOfConferenceGamesPlayed = n(),
+    OutOfConferenceWins = sum(TeamWin),
+    OutOfConferenceWinningPercentage = sum(TeamWin)/n()
+  ) 
+
+TeamRecords = 
+  TeamBox %>%
+  left_join(Schedule, by = c("game_id", "team_id" = "home_id")) %>%
+  left_join(Schedule, by = c("game_id", "team_id" = "away_id")) %>%
+  inner_join(TeamConferenceDirectory, by = c("team_id" = "TeamID", "season.x" = "Season")) %>%
+  transmute(
+    Season = season.x,
+    TeamID = team_id,
+    TeamName = team_short_display_name,
+    ConferenceID,
+    ConferenceName,
+    home_away,
+    home_winner = coalesce(home_winner.x, home_winner.y),
+    home_score = coalesce(home_score.x, home_score.y),
+    away_score = coalesce(away_score.x, away_score.y),
+    TeamWin = 
+      case_when(
+        team_short_display_name == coalesce(home_short_display_name.x, home_short_display_name.y) & coalesce(home_winner.x, home_winner.y) == TRUE ~ 1,
+        team_short_display_name == coalesce(away_short_display_name.x, away_short_display_name.y) & coalesce(away_winner.x, away_winner.y) == TRUE ~ 1,
+        TRUE ~ 0
+        ),
+    opponent_name
+    ) %>%
+  group_by(
+    Season,
+    TeamID,
+    TeamName,
+    ConferenceID,
+    ConferenceName,
+  ) %>%
+  summarise(
+    GamesPlayed = n(),
+    Wins = sum(TeamWin),
+    WinningPercentage = sum(TeamWin)/n()
+  )
+
+
+
+OpponentRecords =
+  TeamBox %>%
+    mutate(OpponentID = as.character(opponent_team_id)) %>%
+    inner_join(TeamRecords, by = c("season" = "Season", "OpponentID" = "TeamID")) %>%
+    inner_join(OutOfConferenceRecords, by = c("season" = "Season", "ConferenceID")) %>%
+    transmute(
+      Season = season,
+      OpponentID,
+      OpponentName = TeamName,
+      TeamID = team_id,
+      TeamName = team_short_display_name,
+      OpponentGamesPlayed = GamesPlayed,
+      OpponentWins = Wins,
+      OpponentConferenceID = ConferenceID,
+      OpponentConferenceName = ConferenceName.y,
+      OpponentConferenceGamesPlayed = OutOfConferenceGamesPlayed,
+      OpponentConferenceWins = OutOfConferenceWins
+    ) %>%
+  group_by(
+    Season,
+    TeamID,
+    TeamName,
+  ) %>%
+  summarise(
+    OpponentGamesPlayed = sum(OpponentGamesPlayed),
+    OpponentWins = sum(OpponentWins),
+    OpponentWinningPercentage = sum(OpponentWins)/sum(OpponentGamesPlayed),
+    OpponentConferenceGamesPlayed = sum(OpponentConferenceGamesPlayed),
+    OpponentConferenceWins = sum(OpponentConferenceWins),
+    OpponentConferenceWinningPercentage = sum(OpponentConferenceWins)/sum(OpponentConferenceGamesPlayed)
+    )
+
+TeamStrengthDF = 
+  TeamRecords %>%
+    inner_join(OutOfConferenceRecords, by = c("Season", "ConferenceID")) %>%
+    inner_join(OpponentRecords, by = c("Season", "TeamID")) %>%
+    group_by(Season) %>%
+    transmute(
+      Season,
+      TeamID,
+      TeamName = TeamName.x,
+      ConferenceID,
+      ConferenceName = ConferenceName.x,
+      Power6,
+      TeamWinningPercentage = WinningPercentage,
+      ConferenceWinningPercentage = OutOfConferenceWinningPercentage,
+      TeamConferenceNormalized = (WinningPercentage*OutOfConferenceWinningPercentage) - mean(WinningPercentage*OutOfConferenceWinningPercentage),
+      TeamConferenceNormalizedExponential = exp((WinningPercentage*OutOfConferenceWinningPercentage) - mean(WinningPercentage*OutOfConferenceWinningPercentage)),
+      OpponentWinningPercentage,
+      OpponentConferenceWinningPercentage,
+      OpponentConferenceNormalized = (OpponentWinningPercentage*OpponentConferenceWinningPercentage) - mean(OpponentWinningPercentage*OpponentConferenceWinningPercentage),
+      OpponentConferenceNormalizedExponential = exp((OpponentWinningPercentage*OpponentConferenceWinningPercentage) - mean(OpponentWinningPercentage*OpponentConferenceWinningPercentage)),
+      NormalizedStrengthRating = TeamConferenceNormalized + OpponentConferenceNormalized,
+      ExponentialStrengthRating = TeamConferenceNormalizedExponential*OpponentConferenceNormalizedExponential
+    )
+
+```
+
+```{r OffensiveStats, echo = FALSE, message = FALSE}
+
+TeamSeasonDF = 
+  TeamBox %>%
+  mutate(OpponentID = as.character(opponent_team_id)) %>%
+  left_join(TeamBox, by = c("OpponentID" = "team_id", "game_id" = "game_id")) %>%
+  inner_join(TeamConferenceDirectory, by = c("team_id" = "TeamID", "season.x" = "Season")) %>%
+  inner_join(TeamConferenceDirectory, by = c("OpponentID" = "TeamID", "season.x" = "Season")) %>%
+  inner_join(ConferenceDirectory, by = c("ConferenceID.x" = "group_id")) %>%
+  inner_join(ConferenceDirectory, by = c("ConferenceID.y" = "group_id")) %>%
+  inner_join(TeamStrengthDF, by = c("team_id" = "TeamID", "season.x" = "Season")) %>%
+  transmute(
+    Season = season.x, 
+    GameID = game_id,
+    TeamID = team_id, 
+    TeamName = team_short_display_name.x,
+    OpponentID = OpponentID,
+    OpponentName = team_short_display_name.y,
+    OpponentStrengthRating = OpponentConferenceNormalizedExponential,
+    FieldGoalsMade = field_goals_made.x,
+    FieldGoalsAttempted = field_goals_attempted.x,
+    ThreePointersMade = three_point_field_goals_made.x,
+    ThreePointersAttempted = three_point_field_goals_attempted.x,
+    TwoPointersMade = field_goals_made.x - three_point_field_goals_made.x,
+    TwoPointersAttempted = field_goals_attempted.x - three_point_field_goals_attempted.x,
+    FreeThrowsMade = free_throws_made.x,
+    FreeThrowsAttempted = free_throws_attempted.x,
+    Assists = as.numeric(assists.x),
+    Turnovers = as.numeric(total_turnovers.x),
+    TurnoverMargin = as.numeric(total_turnovers.y) - as.numeric(total_turnovers.x),
+    TotalRebounds = as.numeric(total_rebounds.x),
+    TotalOffensiveRebounds = as.numeric(offensive_rebounds.x),
+    ReboundMargin = (as.numeric(total_rebounds.x) - as.numeric(total_rebounds.y)),
+    DefensiveReboundMargin = as.numeric(defensive_rebounds.x) - as.numeric(defensive_rebounds.y),
+    OffensiveReboundMargin = (as.numeric(offensive_rebounds.x) - as.numeric(offensive_rebounds.y)),
+    ) %>%
+  group_by(
+    Season,
+    TeamID,
+    TeamName
+  ) %>%
+  summarise(
+    OpponentStrengthRating = max(OpponentStrengthRating),
+    #FieldGoalPercentage = sum(FieldGoalsMade)/sum(FieldGoalsAttempted),
+    FreeThrowPercentage = sum(FreeThrowsMade)/sum(FreeThrowsAttempted),
+    TwoPointPercentage = sum(TwoPointersMade)/sum(TwoPointersAttempted),
+    ThreePointPercentage = sum(ThreePointersMade)/sum(ThreePointersAttempted),
+    AssistTurnoverRatio = sum(Assists)/sum(Turnovers),
+    #ReboundMargin = mean(ReboundMargin),
+    DefensiveReboundMargin = mean(DefensiveReboundMargin),
+    OffensiveReboundMargin = mean(OffensiveReboundMargin),
+  ) %>%
+  na.omit() %>%
+  ungroup()
+  
+```
+
+```{r PCA, echo = FALSE, message = FALSE}
+PCA_Recipe = 
+  recipe(~., data = TeamSeasonDF) %>%
+  update_role(Season, TeamID, TeamName, new_role = "id") %>%
+  step_normalize(all_predictors()) %>%
+  step_pca(all_predictors())
+
+PCA_Prep <- prep(PCA_Recipe, training = TeamSeasonDF)
+
+#PCA_Prep %>%
+#  tidy(2) %>%
+#  filter(component == "PC1") %>%  #%in% paste0("PC", 1:4)) %>%
+#  group_by(component) %>%
+#  #top_n(8, abs(value)) %>%
+#  ungroup() %>%
+#  arrange(desc(abs(value))) %>%
+#  mutate(terms = tidytext::reorder_within(terms, abs(value), component)) %>%
+#  ggplot(aes(abs(value), terms, fill = value > 0)) +
+#  geom_col() +
+#  #facet_wrap(~component, scales = "free_y") +
+#  tidytext::scale_y_reordered() +
+#  labs(
+#    x = "Absolute value of contribution",
+#    y = NULL, fill = "Positive?"
+#  ) + theme_minimal()
+
+JBPI = 
+  juice(PCA_Prep) %>% 
+  mutate(JBPI = rescale(-1*PC1, to = c(0, 100))) %>%
+  arrange(desc(JBPI)) %>%
+  select(
+    Season,
+    TeamID,
+    TeamName,
+    JBPI
+    )
+
+TourneySchedule = 
+  readRDS("./NCAAMB_Schedule.rda") %>% 
+  filter(
+    season_type == 3 &
+      season == 2023 &
+      stringr::str_detect(notes_headline, "^Men's Basketball Championship") &
+      home_short_display_name != "TBD")
+
+TourneyTeams = 
+  TourneySchedule %>%
+  mutate(home_id = away_id,
+         home_short_display_name = away_short_display_name) %>%
+  union(TourneySchedule) %>%
+  select(
+    TeamID = home_id, 
+    TeamName = home_short_display_name
+    ) %>% 
+  distinct()
+
+JBPI %>%
+  filter(Season == 2023) %>%
+  left_join(TourneyTeams, by =  c("TeamID")) %>%
+  inner_join(TeamSeasonDF, by = c("TeamID", "Season")) %>%
+  transmute(
+    #Rank = row_number(),
+    Team = TeamName.x,
+    Tournament = 
+      case_when(
+        is.na(TeamName.y) == TRUE ~ 'N',
+        TRUE ~ 'Y'
+      ),
+    JBPI,
+    "Opponent Strength Rating" = OpponentStrengthRating,
+    "Free Throw Percentage" = FreeThrowPercentage,
+    #"Field Goal Percentage" = FieldGoalPercentage,
+    "Two Point Percentage" = TwoPointPercentage,
+    "Three Point Percentage" = ThreePointPercentage,
+    #"Average Rebound Margin" = ReboundMargin,
+    "Average Defensive Rebound Margin" = DefensiveReboundMargin,
+    "Average Offensive Rebound Margin" = OffensiveReboundMargin,
+    "Assists/Turnovers" = AssistTurnoverRatio,
+  ) %>%
+  datatable(
+    rownames = TRUE, 
+    filter = "top", 
+    extensions = 'Buttons', 
+    options = 
+      list(
+        pageLength = -1,
+        autoWidth = TRUE,
+        dom = 'Bfrtip',
+        buttons = c('copy', 'csv', 'excel', 'pdf', 'print')
+        )
+  ) %>%
+  formatPercentage(
+    c(
+      "Free Throw Percentage",
+      #"Field Goal Percentage",
+      "Two Point Percentage",
+      "Three Point Percentage"
+      ), 
+    1) %>%
+  formatRound(
+    c(
+      "JBPI", 
+      "Opponent Strength Rating", 
+      #"Average Rebound Margin", 
+      "Average Defensive Rebound Margin",
+      "Average Offensive Rebound Margin",
+      "Assists/Turnovers"), 
+    2) %>%
+  formatStyle(
+    "JBPI",
+    fontWeight = "bold",
+    background = styleColorBar(range(JBPI$JBPI), 'lightblue'),
+    backgroundSize = '98% 88%',
+    backgroundRepeat = 'no-repeat',
+    backgroundPosition = 'center')
+
+```

@@ -1,0 +1,923 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(hoopR)
+library(ggplot2)
+library(dplyr)
+library(tidymodels)
+setwd('C:/Users/khira/OneDrive/Documents/NCAAMB')
+```
+
+```{r updateData}
+source('./updateData.r')
+```
+
+
+```{r DataPrep}
+
+NCAAMB_Schedule = 
+  readRDS('./NCAAMB_Schedule.Rda') %>%
+  filter(
+    season >= 2018 & 
+      status_type_name == 'STATUS_FINAL' &
+      status_period == 2
+      )
+
+NCAAMB_TeamBox = 
+  readRDS('./NCAAMB_TeamBox.Rda') %>%
+  filter(season >= 2018)
+
+NCAAMB_Conferences = 
+  readRDS('./NCAAMB_ConferenceDirectory.Rda')
+
+TeamConferenceDirectory = 
+  NCAAMB_Schedule %>% 
+  filter(home_id != 'TBD' & is.na(home_conference_id) == FALSE) %>% 
+  group_by(season, home_id, home_short_display_name, home_conference_id) %>% 
+  summarise() %>%
+  left_join(NCAAMB_Conferences, by = c('home_conference_id' = 'group_id')) %>%
+  select(
+    Season = season, 
+    TeamID = home_id, 
+    TeamName = home_short_display_name, 
+    ConferenceID = home_conference_id, 
+    ConferenceName = short_name)
+
+HomeTeams = 
+  NCAAMB_Schedule %>%
+  mutate(
+    TeamID = as.character(home_id),
+    OpponentID = as.character(away_id),
+    TeamHomeFlag = case_when(neutral_site == TRUE ~ as.character(0.5), TRUE ~ as.character(1)),
+    PointsScored = as.numeric(home_score)) %>%
+  select(
+    'StartDate' = start_date,
+    'Season' = season,
+    'GameID' = id,
+    TeamID,
+    'TeamName' = home_short_display_name,
+    'TeamConferenceID' = home_conference_id,
+    TeamHomeFlag,
+    PointsScored,
+    OpponentID,
+    'OpponentName' = away_short_display_name,
+    'OpponentConferenceID' = away_conference_id
+    )
+
+AwayTeams = 
+  NCAAMB_Schedule %>%
+  mutate(
+    TeamID = as.character(away_id),
+    OpponentID = as.character(home_id),
+    TeamHomeFlag = case_when(neutral_site == TRUE ~ as.character(0.5), TRUE ~ as.character(0)),
+    PointsScored = as.numeric(away_score)) %>%
+  select(
+    'StartDate' = start_date,
+    'Season' = season,
+    'GameID' = id,
+    TeamID,
+    'TeamName' = away_short_display_name,
+    'TeamConferenceID' = away_conference_id,
+    TeamHomeFlag,
+    PointsScored,
+    OpponentID,
+    'OpponentName' = home_short_display_name,
+    'OpponentConferenceID' = home_conference_id
+    )
+
+Games = 
+  HomeTeams %>% 
+  union(AwayTeams) %>%
+  inner_join(NCAAMB_Conferences, by = c('TeamConferenceID' = 'group_id')) %>%
+  inner_join(NCAAMB_Conferences, by = c('OpponentConferenceID' = 'group_id')) %>%
+  select(
+    StartDate,
+    Season,
+    GameID,
+    TeamID,
+    TeamName,
+    'TeamConference' = short_name.x,
+    TeamHomeFlag,
+    PointsScored,
+    OpponentID,
+    OpponentName,
+    'OpponentConference' = short_name.y
+    )
+
+OffensiveStats = 
+  NCAAMB_TeamBox %>%
+  mutate(
+    TeamID = as.character(team_id),
+    Season = season,
+    FieldGoalsMade = as.numeric(sub('-.*', '', field_goals_made_field_goals_attempted)),
+    FieldGoalsAttempted = as.numeric(sub('.*-', '', field_goals_made_field_goals_attempted)),
+    #FieldGoalPercentage = FieldGoalsMade/FieldGoalsAttempted,
+    ThreePointersMade = as.numeric(sub('-.*', '', three_point_field_goals_made_three_point_field_goals_attempted)),
+    ThreePointersAttempted = as.numeric(sub('.*-', '', three_point_field_goals_made_three_point_field_goals_attempted)),
+    #ThreePointPercentage = ThreePointersMade/ThreePointersAttempted,
+    FreeThrowsMade = as.numeric(sub('-.*', '', free_throws_made_free_throws_attempted)),
+    FreeThrowsAttempted = as.numeric(sub('.*-', '', free_throws_made_free_throws_attempted)),
+    #FreeThrowPercentage = FreeThrowsMade/FreeThrowsAttempted
+    ) %>%
+  group_by(TeamID, TeamName = team_short_display_name, Season) %>%
+  summarise(
+    Games = n(),
+    FieldGoalsMade = sum(FieldGoalsMade),
+    FieldGoalsAttempted = sum(FieldGoalsAttempted),
+    ThreePointersMade = sum(ThreePointersMade),
+    ThreePointersAttempted = sum(ThreePointersAttempted),
+    FreeThrowsMade = sum(FreeThrowsMade),
+    FreeThrowsAttempted = sum(FreeThrowsAttempted),
+    TotalRebounds = sum(as.numeric(total_rebounds)),
+    TotalReboundsPerGame = mean(as.numeric(total_rebounds)),
+    OffensiveRebounds = sum(as.numeric(offensive_rebounds)),
+    OffensiveReboundsPerGame = mean(as.numeric(offensive_rebounds)),
+    DefensiveRebounds = sum(as.numeric(defensive_rebounds)),
+    DefensiveReboundsPerGame = mean(as.numeric(defensive_rebounds)),
+    TeamRebounds = sum(as.numeric(team_rebounds)),
+    TeamReboundsPerGame = mean(as.numeric(team_rebounds)),
+    Assists = sum(as.numeric(assists)),
+    AssistsPerGame = mean(as.numeric(assists)),
+    Steals = sum(as.numeric(steals)),
+    StealsPerGame = mean(as.numeric(steals)),
+    Blocks = sum(as.numeric(blocks)),
+    BlocksPerGame = mean(as.numeric(blocks)),
+    Turnovers = sum(as.numeric(total_turnovers)),
+    TurnoversPerGame = mean(as.numeric(total_turnovers)),
+    Fouls = sum(as.numeric(fouls)),
+    FoulsPerGame = mean(as.numeric(fouls))
+    )
+
+DefensiveStats = 
+  NCAAMB_TeamBox %>%
+  mutate(
+    OpponentID = as.character(opponent_id),
+    Season = season,
+    FieldGoalsMade = as.numeric(sub('-.*', '', field_goals_made_field_goals_attempted)),
+    FieldGoalsAttempted = as.numeric(sub('.*-', '', field_goals_made_field_goals_attempted)),
+    #FieldGoalPercentage = FieldGoalsMade/FieldGoalsAttempted,
+    ThreePointersMade = as.numeric(sub('-.*', '', three_point_field_goals_made_three_point_field_goals_attempted)),
+    ThreePointersAttempted = as.numeric(sub('.*-', '', three_point_field_goals_made_three_point_field_goals_attempted)),
+    #ThreePointPercentage = ThreePointersMade/ThreePointersAttempted,
+    FreeThrowsMade = as.numeric(sub('-.*', '', free_throws_made_free_throws_attempted)),
+    FreeThrowsAttempted = as.numeric(sub('.*-', '', free_throws_made_free_throws_attempted)),
+    #FreeThrowPercentage = FreeThrowsMade/FreeThrowsAttempted
+    ) %>%
+  group_by(OpponentID, OpponentName = opponent_name, Season) %>%
+  summarise(
+    Games = n(),
+    FieldGoalsMade = sum(FieldGoalsMade),
+    FieldGoalsAttempted = sum(FieldGoalsAttempted),
+    ThreePointersMade = sum(ThreePointersMade),
+    ThreePointersAttempted = sum(ThreePointersAttempted),
+    FreeThrowsMade = sum(FreeThrowsMade),
+    FreeThrowsAttempted = sum(FreeThrowsAttempted),
+    TotalRebounds = sum(as.numeric(total_rebounds)),
+    TotalReboundsPerGame = mean(as.numeric(total_rebounds)),
+    OffensiveRebounds = sum(as.numeric(offensive_rebounds)),
+    OffensiveReboundsPerGame = mean(as.numeric(offensive_rebounds)),
+    DefensiveRebounds = sum(as.numeric(defensive_rebounds)),
+    DefensiveReboundsPerGame = mean(as.numeric(defensive_rebounds)),
+    TeamRebounds = sum(as.numeric(team_rebounds)),
+    TeamReboundsPerGame = mean(as.numeric(team_rebounds)),
+    Assists = sum(as.numeric(assists)),
+    AssistsPerGame = mean(as.numeric(assists)),
+    Steals = sum(as.numeric(steals)),
+    StealsPerGame = mean(as.numeric(steals)),
+    Blocks = sum(as.numeric(blocks)),
+    BlocksPerGame = mean(as.numeric(blocks)),
+    Turnovers = sum(as.numeric(total_turnovers)),
+    TurnoversPerGame = mean(as.numeric(total_turnovers)),
+    Fouls = sum(as.numeric(fouls)),
+    FoulsPerGame = mean(as.numeric(fouls))
+    )
+
+ModelDF = 
+  Games %>%
+  left_join(
+    OffensiveStats, 
+    by = c('TeamID' = 'TeamID', 'Season' = 'Season')
+    ) %>%
+  left_join(
+    DefensiveStats, 
+    by = c('OpponentID' = 'OpponentID', 'Season' = 'Season')
+    ) %>%
+  transmute(
+    TeamName = TeamName.x,
+    OpponentName = OpponentName.x,
+    GameID,
+    PointsScored,
+    Season,
+    TeamConference,
+    TeamHomeFlag,
+    OpponentConference,
+    TeamFieldGoalPercentage = FieldGoalsMade.x/FieldGoalsAttempted.x,
+    TeamThreePointPercentage = ThreePointersMade.x/ThreePointersAttempted.x,
+    TeamFreeThrowPercentage = FreeThrowsMade.x/FreeThrowsAttempted.x,
+    TeamTotalReboundsPerGame = TotalReboundsPerGame.x,
+    TeamAssistToTurnoverRatio = Assists.x/Turnovers.x,
+    TeamStealsPlusBlocksPerGame = StealsPerGame.x + BlocksPerGame.x,
+    OpponentFieldGoalPercentage = FieldGoalsMade.y/FieldGoalsAttempted.y,
+    OpponentThreePointPercentage = ThreePointersMade.y/ThreePointersAttempted.y,
+    OpponentFreeThrowPercentage = FreeThrowsMade.y/FreeThrowsAttempted.y,
+    OpponentTotalReboundsPerGame = TotalReboundsPerGame.y,
+    OpponentAssistToTurnoverRatio = Assists.x/Turnovers.y,
+    OpponentStealsPlusBlocksPerGame = StealsPerGame.y + BlocksPerGame.y
+  )
+
+```
+
+```{r}
+set.seed(42)
+
+NCAAMB_split = initial_split(ModelDF)
+
+NCAAMB_train = training(NCAAMB_split)
+NCAAMB_test = testing(NCAAMB_split)
+
+NCAAMB_rec = 
+  recipe(
+    PointsScored ~ 
+      Season + 
+      TeamConference + 
+      OpponentConference + 
+      TeamHomeFlag + 
+      TeamFieldGoalPercentage + 
+      TeamThreePointPercentage +
+      TeamFreeThrowPercentage + 
+      TeamTotalReboundsPerGame + 
+      TeamAssistToTurnoverRatio + 
+      TeamStealsPlusBlocksPerGame + 
+      OpponentFieldGoalPercentage + 
+      OpponentThreePointPercentage + 
+      OpponentFreeThrowPercentage + 
+      OpponentTotalReboundsPerGame + 
+      OpponentAssistToTurnoverRatio + 
+      OpponentStealsPlusBlocksPerGame
+    , data = NCAAMB_train
+    ) %>%
+  #update_role(GameID, new_role = 'Game ID') %>%
+  #update_role(TeamName, new_role = 'Team') %>%
+  #update_role(OpponentName, new_role = 'Opponent') %>%
+  step_dummy(all_nominal(), -all_outcomes()) %>%
+  step_zv(all_predictors()) %>%
+  step_normalize(all_predictors())
+
+```
+
+```{r LinearRegression}
+linreg_mod = linear_reg() %>%
+```
+
+```{r RandomForest_trainingfit}
+rf_mod = rand_forest()
+
+NCAAMB_rf_wf = 
+  workflow() %>%
+  add_recipe(NCAAMB_rec) %>%
+  add_model(rf_mod)
+NCAAMB_rf_train_fit = 
+  NCAAMB_rf_wf %>%
+  fit(NCAAMB_train)
+
+NCAA_rf_train_predictions = 
+  NCAAMB_rf_train_fit %>% 
+  predict(NCAAMB_train)
+
+NCAA_rf_train_predictions %>%
+  cbind(NCAAMB_train$PointsScored) %>%
+  summarise(sum((.pred - NCAAMB_train$PointsScored)^2))
+```
+
+
+
+```{r RandomForest_testingpredctions}
+NCAAMB_rf_test_predictions = 
+  predict(NCAAMB_rf_train_fit, 
+          new_data = NCAAMB_test)
+
+NCAAMB_rf_test_predictions %>%
+  cbind(NCAAMB_test$PointsScored) %>%
+  summarise(sum((.pred - NCAAMB_test$PointsScored)^2))
+```
+
+
+```{r RandomForest_finalmodel}
+NCAAMB_rf_fit = 
+  NCAAMB_rf_wf %>%
+  fit(ModelDF)
+
+model_board = pins::board_folder('./')
+
+v = vetiver::vetiver_model(NCAAMB_rf_fit, 'NCAAMB_Tournament_RF')
+
+model_board %>% vetiver::vetiver_pin_write(v)
+```
+
+```{r}
+NCAAMB_tourney = 
+  readRDS('./NCAAMB_Schedule.Rda') %>%
+  filter(
+    season >= 2023 &
+      stringr::str_detect(notes_headline, "^Men's Basketball Championship") &
+      status_type_name == 'STATUS_SCHEDULED'
+      )
+
+TourneyHome = 
+  NCAAMB_tourney %>%
+  mutate(
+    TeamID = as.character(home_id),
+    OpponentID = as.character(away_id),
+    TeamHomeFlag = as.character(0.5),
+    PointsScored = as.numeric(home_score)) %>%
+  select(
+    'StartDate' = start_date,
+    'Season' = season,
+    'GameID' = id,
+    TeamID,
+    'TeamName' = home_short_display_name,
+    'TeamConferenceID' = home_conference_id,
+    TeamHomeFlag,
+    PointsScored,
+    OpponentID,
+    'OpponentName' = away_short_display_name,
+    'OpponentConferenceID' = away_conference_id
+    )
+
+TourneyAway = 
+  NCAAMB_tourney %>%
+  mutate(
+    TeamID = as.character(away_id),
+    OpponentID = as.character(home_id),
+    TeamHomeFlag = as.character(0.5),
+    PointsScored = as.numeric(away_score)) %>%
+  select(
+    'StartDate' = start_date,
+    'Season' = season,
+    'GameID' = id,
+    TeamID,
+    'TeamName' = away_short_display_name,
+    'TeamConferenceID' = away_conference_id,
+    TeamHomeFlag,
+    PointsScored,
+    OpponentID,
+    'OpponentName' = home_short_display_name,
+    'OpponentConferenceID' = home_conference_id
+    )
+
+TourneyRound1 = 
+  TourneyHome %>% 
+  union(TourneyAway) %>%
+  inner_join(NCAAMB_Conferences, by = c('TeamConferenceID' = 'group_id')) %>%
+  inner_join(NCAAMB_Conferences, by = c('OpponentConferenceID' = 'group_id')) %>%
+  select(
+    StartDate,
+    Season,
+    GameID,
+    TeamID,
+    TeamName,
+    'TeamConference' = short_name.x,
+    TeamHomeFlag,
+    PointsScored,
+    OpponentID,
+    OpponentName,
+    'OpponentConference' = short_name.y
+    ) %>%  
+  left_join(
+    OffensiveStats, 
+    by = c('TeamID' = 'TeamID', 'Season' = 'Season')
+    ) %>%
+  left_join(
+    DefensiveStats, 
+    by = c('OpponentID' = 'OpponentID', 'Season' = 'Season')
+    ) %>%
+  transmute(
+    TeamName = TeamName.x,
+    TeamID,
+    OpponentName = OpponentName.x,
+    GameID,
+    PointsScored,
+    Season,
+    TeamConference,
+    TeamHomeFlag,
+    OpponentConference,
+    TeamFieldGoalPercentage = FieldGoalsMade.x/FieldGoalsAttempted.x,
+    TeamThreePointPercentage = ThreePointersMade.x/ThreePointersAttempted.x,
+    TeamFreeThrowPercentage = FreeThrowsMade.x/FreeThrowsAttempted.x,
+    TeamTotalReboundsPerGame = TotalReboundsPerGame.x,
+    TeamAssistToTurnoverRatio = Assists.x/Turnovers.x,
+    TeamStealsPlusBlocksPerGame = StealsPerGame.x + BlocksPerGame.x,
+    OpponentFieldGoalPercentage = FieldGoalsMade.y/FieldGoalsAttempted.y,
+    OpponentThreePointPercentage = ThreePointersMade.y/ThreePointersAttempted.y,
+    OpponentFreeThrowPercentage = FreeThrowsMade.y/FreeThrowsAttempted.y,
+    OpponentTotalReboundsPerGame = TotalReboundsPerGame.y,
+    OpponentAssistToTurnoverRatio = Assists.x/Turnovers.y,
+    OpponentStealsPlusBlocksPerGame = StealsPerGame.y + BlocksPerGame.y
+    ) %>%
+  arrange(GameID)
+
+TourneyRound1Predictions = 
+  NCAAMB_rf_fit %>% 
+  predict(TourneyRound1) %>%
+  cbind(TourneyRound1) %>%
+  select(GameID,
+         TeamName,
+         TeamID,
+         'ScorePrediction' = .pred
+         )
+
+TourneyRound1Winners = TourneyRound1Predictions %>%
+  group_by(GameID) %>%
+  filter(ScorePrediction == max(ScorePrediction))
+
+print(TourneyRound1Winners)
+
+TourneyRound1Outcomes = 
+  NCAAMB_tourney %>%
+  mutate(GameID = as.character(game_id),
+         HomeTeamID = as.character(home_id),
+         HomeConferenceID = as.character(home_conference_id),
+         AwayTeamID = as.character(away_id),
+         AwayConferenceID = as.character(away_conference_id)
+         ) %>%
+  inner_join(TourneyRound1Predictions, by = c('GameID' = 'GameID', 'HomeTeamID' = 'TeamID')) %>%
+  inner_join(TourneyRound1Predictions, by = c('GameID' = 'GameID', 'AwayTeamID' = 'TeamID')) %>%
+  inner_join(NCAAMB_Conferences, by = c('HomeConferenceID' = 'group_id')) %>%
+  inner_join(NCAAMB_Conferences, by = c('AwayConferenceID' = 'group_id')) %>%
+  select(GameID,
+         HomeTeamID,
+         HomeTeamName = TeamName.x,
+         HomeConferenceName = short_name.x,
+         HomeScorePrediction = ScorePrediction.x,
+         AwayTeamID,
+         AwayTeamName = TeamName.y,
+         AwayConferenceName = short_name.y,
+         AwayScorePrediction = ScorePrediction.y) %>%
+  mutate(
+    WinningTeamID = 
+      case_when(
+        HomeScorePrediction > AwayScorePrediction ~ HomeTeamID,
+        HomeScorePrediction < AwayScorePrediction ~ AwayTeamID
+      ),
+    WinningTeamName = 
+      case_when(
+        HomeScorePrediction > AwayScorePrediction ~ HomeTeamName,
+        HomeScorePrediction < AwayScorePrediction ~ AwayTeamName
+      ),
+    WinningConferenceName = 
+      case_when(
+        HomeScorePrediction > AwayScorePrediction ~ HomeConferenceName,
+        HomeScorePrediction < AwayScorePrediction ~ AwayConferenceName
+      )
+    ) %>%
+  arrange(GameID)
+
+```
+
+
+
+```{r}
+TourneyRound1Outcomes %>% select(WinningTeamID, WinningTeamName, WinningConferenceName)
+
+TourneyTeamsRound2 = 
+  tibble(
+    Season = rep(2023, 32),
+    GameID = 
+      c(
+           'SR321',
+           'SR321',
+           'SR322',
+           'SR322',
+           'SR323',
+           'SR323',
+           'SR324',
+           'SR324',
+           'ER321',
+           'ER321',
+           'ER322',
+           'ER322',
+           'ER323',
+           'ER323',
+           'ER324',
+           'ER324',
+           'MR321',
+           'MR321',
+           'MR322',
+           'MR322',
+           'MR323',
+           'MR323',
+           'MR324',
+           'MR324',
+           'WR321',
+           'WR321',
+           'WR322',
+           'WR322',
+           'WR323',
+           'WR323',
+           'WR324',
+           'WR324'
+         ),
+    TeamID = 
+         c(
+           '333',  #Alabama
+           '120',  #Maryland
+           '21',   #San Diego St
+           '231',  #Furman
+           '156',  #Creighton
+           '2540', #UCSB
+           '328',  #Utah St
+           '12',   #Arizona
+           '2509', #Purdue
+           '2226', #FAU
+           '150',  #Duke
+           '2633', #Tennessee
+           '96',   #Kentucky
+           '2306', #Kansas St
+           '127',  #Michigan St
+           '269',  #Marquette
+           '248',  #Houston
+           '2',    #Auburn
+           '2181', #Drake
+           '2309', #Kent St
+           '66',   #Iowa St
+           '2752', #Xavier
+           '245',  #Texas A&M
+           '251',  #Texas
+           '2305', #Kansas
+           '8',    #Arkansas
+           '2608', #Saint Mary's
+           '41',   #UCONN
+           '2628', #TCU
+           '2250', #Gonzaga
+           '68',   #Boise St
+           '26'    #UCLA
+         ),
+    OpponentID = 
+      c(
+        '120',  #Maryland
+        '333',  #Alabama
+        '231',  #Furman
+        '21',   #San Diego St
+        '2540', #UCSB
+        '156',  #Creighton
+        '12',   #Arizona
+        '328',  #Utah St
+        '2226', #FAU
+        '2509', #Purdue
+        '2633', #Tennessee
+        '150',  #Duke
+        '2306', #Kansas St
+        '96',   #Kentucky
+        '269',  #Marquette
+        '127',  #Michigan St
+        '2',    #Auburn
+        '248',  #Houston
+        '2309', #Kent St
+        '2181', #Drake
+        '2752', #Xavier
+        '66',   #Iowa St
+        '251',  #Texas
+        '245',  #Texas A&M
+        '8',    #Arkansas
+        '2305', #Kansas
+        '41',   #UCONN
+        '2608', #Saint Mary's
+        '2250', #Gonzaga
+        '2628', #TCU
+        '26',   #UCLA
+        '68'    #Boise St
+      )
+       )
+
+TourneyRound2 = 
+  TourneyTeamsRound2 %>% 
+  left_join(OffensiveStats, by = c('TeamID' = 'TeamID', 'Season' = 'Season')) %>%
+  left_join(DefensiveStats, by = c('OpponentID' = 'OpponentID', 'Season' = 'Season')) %>%
+  left_join(TeamConferenceDirectory, by = c('TeamID' = 'TeamID', 'Season' = 'Season')) %>%
+  left_join(TeamConferenceDirectory, by = c('OpponentID' = 'TeamID', 'Season' = 'Season')) %>%
+  transmute(
+    TeamName,
+    TeamID,
+    OpponentName,
+    GameID,
+    #PointsScored,
+    Season,
+    TeamConference = ConferenceName.x,
+    TeamHomeFlag = as.character(0.5),
+    OpponentConference = ConferenceName.y,
+    TeamFieldGoalPercentage = FieldGoalsMade.x/FieldGoalsAttempted.x,
+    TeamThreePointPercentage = ThreePointersMade.x/ThreePointersAttempted.x,
+    TeamFreeThrowPercentage = FreeThrowsMade.x/FreeThrowsAttempted.x,
+    TeamTotalReboundsPerGame = TotalReboundsPerGame.x,
+    TeamAssistToTurnoverRatio = Assists.x/Turnovers.x,
+    TeamStealsPlusBlocksPerGame = StealsPerGame.x + BlocksPerGame.x,
+    OpponentFieldGoalPercentage = FieldGoalsMade.y/FieldGoalsAttempted.y,
+    OpponentThreePointPercentage = ThreePointersMade.y/ThreePointersAttempted.y,
+    OpponentFreeThrowPercentage = FreeThrowsMade.y/FreeThrowsAttempted.y,
+    OpponentTotalReboundsPerGame = TotalReboundsPerGame.y,
+    OpponentAssistToTurnoverRatio = Assists.x/Turnovers.y,
+    OpponentStealsPlusBlocksPerGame = StealsPerGame.y + BlocksPerGame.y
+    ) %>%
+  arrange(GameID)
+
+
+TourneyRound2Predictions = 
+  NCAAMB_rf_fit %>% 
+  predict(TourneyRound2) %>%
+  cbind(TourneyRound2) %>%
+  select(GameID,
+         TeamName,
+         TeamID,
+         'ScorePrediction' = .pred
+         )
+
+TourneyRound2Winners = 
+  TourneyRound2Predictions %>% 
+  group_by(GameID) %>%
+  filter(ScorePrediction == max(ScorePrediction))
+
+```
+
+```{r}
+TourneyTeamsRound3 = 
+  TourneyRound2Winners %>% 
+  ungroup() %>%
+  select(TeamName, TeamID) %>%
+  cbind(
+    GameID = 
+      c(
+        'ES161','ES161','ES162','ES162',
+        'MS161','MS161','MS162','MS162',
+        'SS161','SS161','SS162','SS162',
+        'WS161','WS161','WS162','WS162'
+        ),
+    Season = rep(2023, 16))
+
+TourneyRound3 = 
+  TourneyTeamsRound3 %>%
+  left_join(TourneyTeamsRound3, by = c('GameID' = 'GameID')) %>%
+  filter(TeamID.x != TeamID.y) %>%
+  rename(TeamName = TeamName.x,
+         TeamID = TeamID.x,
+         Season = Season.x,
+         OpponentName = TeamName.y,
+         OpponentID = TeamID.y
+         ) %>%
+  left_join(OffensiveStats, by = c('TeamID' = 'TeamID', 'Season' = 'Season')) %>%
+  left_join(DefensiveStats, by = c('OpponentID' = 'OpponentID', 'Season' = 'Season')) %>%
+  left_join(TeamConferenceDirectory, by = c('TeamID' = 'TeamID', 'Season' = 'Season')) %>%
+  left_join(TeamConferenceDirectory, by = c('OpponentID' = 'TeamID', 'Season' = 'Season')) %>%
+  transmute(
+    TeamName = TeamName.x,
+    TeamID,
+    OpponentName = OpponentName.x,
+    GameID,
+    #PointsScored,
+    Season,
+    TeamConference = ConferenceName.x,
+    TeamHomeFlag = as.character(0.5),
+    OpponentConference = ConferenceName.y,
+    TeamFieldGoalPercentage = FieldGoalsMade.x/FieldGoalsAttempted.x,
+    TeamThreePointPercentage = ThreePointersMade.x/ThreePointersAttempted.x,
+    TeamFreeThrowPercentage = FreeThrowsMade.x/FreeThrowsAttempted.x,
+    TeamTotalReboundsPerGame = TotalReboundsPerGame.x,
+    TeamAssistToTurnoverRatio = Assists.x/Turnovers.x,
+    TeamStealsPlusBlocksPerGame = StealsPerGame.x + BlocksPerGame.x,
+    OpponentFieldGoalPercentage = FieldGoalsMade.y/FieldGoalsAttempted.y,
+    OpponentThreePointPercentage = ThreePointersMade.y/ThreePointersAttempted.y,
+    OpponentFreeThrowPercentage = FreeThrowsMade.y/FreeThrowsAttempted.y,
+    OpponentTotalReboundsPerGame = TotalReboundsPerGame.y,
+    OpponentAssistToTurnoverRatio = Assists.x/Turnovers.y,
+    OpponentStealsPlusBlocksPerGame = StealsPerGame.y + BlocksPerGame.y
+    ) %>%
+  arrange(GameID)
+  
+TourneyRound3Predictions = 
+  NCAAMB_rf_fit %>% 
+  predict(TourneyRound3) %>%
+  cbind(TourneyRound3) %>%
+  select(GameID,
+         TeamName,
+         TeamID,
+         'ScorePrediction' = .pred
+         )
+
+TourneyRound3Winners = 
+  TourneyRound3Predictions %>% 
+  group_by(GameID) %>%
+  filter(ScorePrediction == max(ScorePrediction))
+```
+
+```{r}
+TourneyTeamsRound4 = 
+  TourneyRound3Winners %>% 
+  ungroup() %>%
+  select(TeamName, TeamID) %>%
+  cbind(
+    GameID = 
+      c(
+        'EE081','EE081',
+        'ME081','ME081',
+        'SE081','SE081',
+        'WE081','WE081'
+        ),
+    Season = rep(2023, 8))
+
+TourneyRound4 = 
+  TourneyTeamsRound4 %>%
+  left_join(TourneyTeamsRound4, by = c('GameID' = 'GameID')) %>%
+  filter(TeamID.x != TeamID.y) %>%
+  rename(TeamName = TeamName.x,
+         TeamID = TeamID.x,
+         Season = Season.x,
+         OpponentName = TeamName.y,
+         OpponentID = TeamID.y
+         ) %>%
+  left_join(OffensiveStats, by = c('TeamID' = 'TeamID', 'Season' = 'Season')) %>%
+  left_join(DefensiveStats, by = c('OpponentID' = 'OpponentID', 'Season' = 'Season')) %>%
+  left_join(TeamConferenceDirectory, by = c('TeamID' = 'TeamID', 'Season' = 'Season')) %>%
+  left_join(TeamConferenceDirectory, by = c('OpponentID' = 'TeamID', 'Season' = 'Season')) %>%
+  transmute(
+    TeamName = TeamName.x,
+    TeamID,
+    OpponentName = OpponentName.x,
+    GameID,
+    #PointsScored,
+    Season,
+    TeamConference = ConferenceName.x,
+    TeamHomeFlag = as.character(0.5),
+    OpponentConference = ConferenceName.y,
+    TeamFieldGoalPercentage = FieldGoalsMade.x/FieldGoalsAttempted.x,
+    TeamThreePointPercentage = ThreePointersMade.x/ThreePointersAttempted.x,
+    TeamFreeThrowPercentage = FreeThrowsMade.x/FreeThrowsAttempted.x,
+    TeamTotalReboundsPerGame = TotalReboundsPerGame.x,
+    TeamAssistToTurnoverRatio = Assists.x/Turnovers.x,
+    TeamStealsPlusBlocksPerGame = StealsPerGame.x + BlocksPerGame.x,
+    OpponentFieldGoalPercentage = FieldGoalsMade.y/FieldGoalsAttempted.y,
+    OpponentThreePointPercentage = ThreePointersMade.y/ThreePointersAttempted.y,
+    OpponentFreeThrowPercentage = FreeThrowsMade.y/FreeThrowsAttempted.y,
+    OpponentTotalReboundsPerGame = TotalReboundsPerGame.y,
+    OpponentAssistToTurnoverRatio = Assists.x/Turnovers.y,
+    OpponentStealsPlusBlocksPerGame = StealsPerGame.y + BlocksPerGame.y
+    ) %>%
+  arrange(GameID)
+  
+TourneyRound4Predictions = 
+  NCAAMB_rf_fit %>% 
+  predict(TourneyRound4) %>%
+  cbind(TourneyRound4) %>%
+  select(GameID,
+         TeamName,
+         TeamID,
+         'ScorePrediction' = .pred
+         )
+
+TourneyRound4Winners = 
+  TourneyRound4Predictions %>% 
+  group_by(GameID) %>%
+  filter(ScorePrediction == max(ScorePrediction))
+```
+
+```{r}
+TourneyTeamsRound5 = 
+  TourneyRound4Winners %>% 
+  ungroup() %>%
+  select(TeamName, TeamID) %>%
+  cbind(
+    GameID = 
+      c(
+        'ESF41','ESF41',
+        'MWF41','MWF41'
+        ),
+    Season = rep(2023, 4))
+
+TourneyRound5 = 
+  TourneyTeamsRound5 %>%
+  left_join(TourneyTeamsRound5, by = c('GameID' = 'GameID')) %>%
+  filter(TeamID.x != TeamID.y) %>%
+  rename(TeamName = TeamName.x,
+         TeamID = TeamID.x,
+         Season = Season.x,
+         OpponentName = TeamName.y,
+         OpponentID = TeamID.y
+         ) %>%
+  left_join(OffensiveStats, by = c('TeamID' = 'TeamID', 'Season' = 'Season')) %>%
+  left_join(DefensiveStats, by = c('OpponentID' = 'OpponentID', 'Season' = 'Season')) %>%
+  left_join(TeamConferenceDirectory, by = c('TeamID' = 'TeamID', 'Season' = 'Season')) %>%
+  left_join(TeamConferenceDirectory, by = c('OpponentID' = 'TeamID', 'Season' = 'Season')) %>%
+  transmute(
+    TeamName = TeamName.x,
+    TeamID,
+    OpponentName = OpponentName.x,
+    GameID,
+    #PointsScored,
+    Season,
+    TeamConference = ConferenceName.x,
+    TeamHomeFlag = as.character(0.5),
+    OpponentConference = ConferenceName.y,
+    TeamFieldGoalPercentage = FieldGoalsMade.x/FieldGoalsAttempted.x,
+    TeamThreePointPercentage = ThreePointersMade.x/ThreePointersAttempted.x,
+    TeamFreeThrowPercentage = FreeThrowsMade.x/FreeThrowsAttempted.x,
+    TeamTotalReboundsPerGame = TotalReboundsPerGame.x,
+    TeamAssistToTurnoverRatio = Assists.x/Turnovers.x,
+    TeamStealsPlusBlocksPerGame = StealsPerGame.x + BlocksPerGame.x,
+    OpponentFieldGoalPercentage = FieldGoalsMade.y/FieldGoalsAttempted.y,
+    OpponentThreePointPercentage = ThreePointersMade.y/ThreePointersAttempted.y,
+    OpponentFreeThrowPercentage = FreeThrowsMade.y/FreeThrowsAttempted.y,
+    OpponentTotalReboundsPerGame = TotalReboundsPerGame.y,
+    OpponentAssistToTurnoverRatio = Assists.x/Turnovers.y,
+    OpponentStealsPlusBlocksPerGame = StealsPerGame.y + BlocksPerGame.y
+    ) %>%
+  arrange(GameID)
+  
+TourneyRound5Predictions = 
+  NCAAMB_rf_fit %>% 
+  predict(TourneyRound5) %>%
+  cbind(TourneyRound5) %>%
+  select(GameID,
+         TeamName,
+         TeamID,
+         'ScorePrediction' = .pred
+         )
+
+TourneyRound5Winners = 
+  TourneyRound5Predictions %>% 
+  group_by(GameID) %>%
+  filter(ScorePrediction == max(ScorePrediction))
+
+```
+
+```{r}
+TourneyTeamsRound6 = 
+  TourneyRound5Winners %>% 
+  ungroup() %>%
+  select(TeamName, TeamID) %>%
+  cbind(
+    GameID = 
+      c(
+        'NC1','NC1'
+        ),
+    Season = rep(2023, 2))
+
+TourneyRound6 = 
+  TourneyTeamsRound6 %>%
+  left_join(TourneyTeamsRound6, by = c('GameID' = 'GameID')) %>%
+  filter(TeamID.x != TeamID.y) %>%
+  rename(TeamName = TeamName.x,
+         TeamID = TeamID.x,
+         Season = Season.x,
+         OpponentName = TeamName.y,
+         OpponentID = TeamID.y
+         ) %>%
+  left_join(OffensiveStats, by = c('TeamID' = 'TeamID', 'Season' = 'Season')) %>%
+  left_join(DefensiveStats, by = c('OpponentID' = 'OpponentID', 'Season' = 'Season')) %>%
+  left_join(TeamConferenceDirectory, by = c('TeamID' = 'TeamID', 'Season' = 'Season')) %>%
+  left_join(TeamConferenceDirectory, by = c('OpponentID' = 'TeamID', 'Season' = 'Season')) %>%
+  transmute(
+    TeamName = TeamName.x,
+    TeamID,
+    OpponentName = OpponentName.x,
+    GameID,
+    #PointsScored,
+    Season,
+    TeamConference = ConferenceName.x,
+    TeamHomeFlag = as.character(0.5),
+    OpponentConference = ConferenceName.y,
+    TeamFieldGoalPercentage = FieldGoalsMade.x/FieldGoalsAttempted.x,
+    TeamThreePointPercentage = ThreePointersMade.x/ThreePointersAttempted.x,
+    TeamFreeThrowPercentage = FreeThrowsMade.x/FreeThrowsAttempted.x,
+    TeamTotalReboundsPerGame = TotalReboundsPerGame.x,
+    TeamAssistToTurnoverRatio = Assists.x/Turnovers.x,
+    TeamStealsPlusBlocksPerGame = StealsPerGame.x + BlocksPerGame.x,
+    OpponentFieldGoalPercentage = FieldGoalsMade.y/FieldGoalsAttempted.y,
+    OpponentThreePointPercentage = ThreePointersMade.y/ThreePointersAttempted.y,
+    OpponentFreeThrowPercentage = FreeThrowsMade.y/FreeThrowsAttempted.y,
+    OpponentTotalReboundsPerGame = TotalReboundsPerGame.y,
+    OpponentAssistToTurnoverRatio = Assists.x/Turnovers.y,
+    OpponentStealsPlusBlocksPerGame = StealsPerGame.y + BlocksPerGame.y
+    ) %>%
+  arrange(GameID)
+  
+TourneyRound6Predictions = 
+  NCAAMB_rf_fit %>% 
+  predict(TourneyRound6) %>%
+  cbind(TourneyRound6) %>%
+  select(GameID,
+         TeamName,
+         TeamID,
+         'ScorePrediction' = .pred
+         )
+
+TourneyRound6Winners = 
+  TourneyRound6Predictions %>% 
+  group_by(GameID) %>%
+  filter(ScorePrediction == max(ScorePrediction))
+```
