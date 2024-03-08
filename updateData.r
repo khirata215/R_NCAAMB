@@ -1,7 +1,8 @@
 library(hoopR)
+library(dplyr)
 setwd('C:/Users/khira/OneDrive/Documents/NCAAMB')
 
-seasons = seq(2006, 2023)
+seasons = seq(2006, 2024)
 
 mbb_schedule = load_mbb_schedule(seasons = seasons)
 saveRDS(mbb_schedule, file = './NCAAMB_Schedule.Rda')
@@ -26,7 +27,7 @@ TeamConferenceDirectory =
     TeamID = home_id, 
     TeamName = home_short_display_name, 
     ConferenceID = home_conference_id, 
-    ConferenceName = short_name) %>%
+    ConferenceName = conference_short_name) %>%
   ungroup()
 saveRDS(TeamConferenceDirectory, file = './NCAAMB_TeamConferenceDirectory.Rda')
 
