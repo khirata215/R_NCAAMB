@@ -39,7 +39,8 @@ Schedule =
   readRDS("C:/Users/khira/OneDrive/Documents/NCAAMB/NCAAMB_Schedule.rda") %>% 
   inner_join(RegularSeasonGameIDs, by = c("game_id"))
 ConferenceDirectory = readRDS("C:/Users/khira/OneDrive/Documents/NCAAMB/NCAAMB_ConferenceDirectory.rda")
-TeamConferenceDirectory = readRDS("C:/Users/khira/OneDrive/Documents/NCAAMB/NCAAMB_TeamConferenceDirectory.rda")
+TeamConferenceDirectory = 
+  readRDS("C:/Users/khira/OneDrive/Documents/NCAAMB/NCAAMB_TeamConferenceDirectory.rda")
 
 ```
 
