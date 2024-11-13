@@ -1,6 +1,6 @@
 ---
 title: "Coach Jade's Basketball Power Index"
-subtitle: "2022-2023 NCAA Men's Basketball"
+subtitle: "2023-2024 NCAA Men's Basketball"
 author: "Kyle Hirata"
 date: "Updated: `r format(Sys.time(), '%d %B %Y')`"
 output: 
@@ -29,17 +29,18 @@ library(DT)
 
 ```{r LoadData, echo = FALSE, message = FALSE}
 RegularSeasonGameIDs = 
-  readRDS("./NCAAMB_Schedule.rda") %>% 
+  readRDS('C:/Users/khira/OneDrive/Documents/NCAAMB/NCAAMB_Schedule.Rda') %>% 
   filter(season_type != 3) %>% 
   distinct(game_id)
 TeamBox = 
-  readRDS("./NCAAMB_TeamBox.rda") %>% 
+  readRDS("C:/Users/khira/OneDrive/Documents/NCAAMB/NCAAMB_TeamBox.rda") %>% 
   inner_join(RegularSeasonGameIDs, by = c("game_id"))
 Schedule = 
-  readRDS("./NCAAMB_Schedule.rda") %>% 
+  readRDS("C:/Users/khira/OneDrive/Documents/NCAAMB/NCAAMB_Schedule.rda") %>% 
   inner_join(RegularSeasonGameIDs, by = c("game_id"))
-ConferenceDirectory = readRDS("./NCAAMB_ConferenceDirectory.rda")
-TeamConferenceDirectory = readRDS("./NCAAMB_TeamConferenceDirectory.rda")
+ConferenceDirectory = readRDS("C:/Users/khira/OneDrive/Documents/NCAAMB/NCAAMB_ConferenceDirectory.rda")
+TeamConferenceDirectory = 
+  readRDS("C:/Users/khira/OneDrive/Documents/NCAAMB/NCAAMB_TeamConferenceDirectory.rda")
 
 ```
 
@@ -71,7 +72,7 @@ OutOfConferenceRecords =
         ConferenceName == "A 10"          ~ as.numeric(0.5),
                                      TRUE ~ as.numeric(0)
       ),
-    home_away,
+    team_home_away,
     home_winner = coalesce(home_winner.x, home_winner.y),
     home_score = coalesce(home_score.x, home_score.y),
     away_score = coalesce(away_score.x, away_score.y),
@@ -81,7 +82,7 @@ OutOfConferenceRecords =
         team_short_display_name == coalesce(away_short_display_name.x, away_short_display_name.y) & coalesce(away_winner.x, away_winner.y) == TRUE ~ 1,
         TRUE ~ 0
         ),
-    opponent_name
+    opponent_team_location
     ) %>%
   group_by(
     Season,
@@ -106,7 +107,7 @@ TeamRecords =
     TeamName = team_short_display_name,
     ConferenceID,
     ConferenceName,
-    home_away,
+    team_home_away,
     home_winner = coalesce(home_winner.x, home_winner.y),
     home_score = coalesce(home_score.x, home_score.y),
     away_score = coalesce(away_score.x, away_score.y),
@@ -116,7 +117,7 @@ TeamRecords =
         team_short_display_name == coalesce(away_short_display_name.x, away_short_display_name.y) & coalesce(away_winner.x, away_winner.y) == TRUE ~ 1,
         TRUE ~ 0
         ),
-    opponent_name
+    opponent_team_location
     ) %>%
   group_by(
     Season,
@@ -135,12 +136,12 @@ TeamRecords =
 
 OpponentRecords =
   TeamBox %>%
-    mutate(OpponentID = as.character(opponent_team_id)) %>%
-    inner_join(TeamRecords, by = c("season" = "Season", "OpponentID" = "TeamID")) %>%
+    #mutate(OpponentID = as.character(opponent_team_id)) %>%
+    inner_join(TeamRecords, by = c("season" = "Season", "opponent_team_id" = "TeamID")) %>%
     inner_join(OutOfConferenceRecords, by = c("season" = "Season", "ConferenceID")) %>%
     transmute(
       Season = season,
-      OpponentID,
+      OpponentID = opponent_team_id,
       OpponentName = TeamName,
       TeamID = team_id,
       TeamName = team_short_display_name,
@@ -195,10 +196,10 @@ TeamStrengthDF =
 
 TeamSeasonDF = 
   TeamBox %>%
-  mutate(OpponentID = as.character(opponent_team_id)) %>%
-  left_join(TeamBox, by = c("OpponentID" = "team_id", "game_id" = "game_id")) %>%
+  #mutate(OpponentID = as.character(opponent_team_id)) %>%
+  left_join(TeamBox, by = c("opponent_team_id" = "team_id", "game_id" = "game_id")) %>%
   inner_join(TeamConferenceDirectory, by = c("team_id" = "TeamID", "season.x" = "Season")) %>%
-  inner_join(TeamConferenceDirectory, by = c("OpponentID" = "TeamID", "season.x" = "Season")) %>%
+  inner_join(TeamConferenceDirectory, by = c("opponent_team_id" = "TeamID", "season.x" = "Season")) %>%
   inner_join(ConferenceDirectory, by = c("ConferenceID.x" = "group_id")) %>%
   inner_join(ConferenceDirectory, by = c("ConferenceID.y" = "group_id")) %>%
   inner_join(TeamStrengthDF, by = c("team_id" = "TeamID", "season.x" = "Season")) %>%
@@ -207,7 +208,7 @@ TeamSeasonDF =
     GameID = game_id,
     TeamID = team_id, 
     TeamName = team_short_display_name.x,
-    OpponentID = OpponentID,
+    OpponentID = opponent_team_id,
     OpponentName = team_short_display_name.y,
     OpponentStrengthRating = OpponentConferenceNormalizedExponential,
     FieldGoalsMade = field_goals_made.x,
@@ -234,10 +235,10 @@ TeamSeasonDF =
   ) %>%
   summarise(
     OpponentStrengthRating = max(OpponentStrengthRating),
-    #FieldGoalPercentage = sum(FieldGoalsMade)/sum(FieldGoalsAttempted),
+    FieldGoalPercentage = sum(FieldGoalsMade)/sum(FieldGoalsAttempted),
     FreeThrowPercentage = sum(FreeThrowsMade)/sum(FreeThrowsAttempted),
-    TwoPointPercentage = sum(TwoPointersMade)/sum(TwoPointersAttempted),
-    ThreePointPercentage = sum(ThreePointersMade)/sum(ThreePointersAttempted),
+    #TwoPointPercentage = sum(TwoPointersMade)/sum(TwoPointersAttempted),
+    #ThreePointPercentage = sum(ThreePointersMade)/sum(ThreePointersAttempted),
     AssistTurnoverRatio = sum(Assists)/sum(Turnovers),
     #ReboundMargin = mean(ReboundMargin),
     DefensiveReboundMargin = mean(DefensiveReboundMargin),
@@ -285,43 +286,43 @@ JBPI =
     JBPI
     )
 
-TourneySchedule = 
-  readRDS("./NCAAMB_Schedule.rda") %>% 
-  filter(
-    season_type == 3 &
-      season == 2023 &
-      stringr::str_detect(notes_headline, "^Men's Basketball Championship") &
-      home_short_display_name != "TBD")
-
-TourneyTeams = 
-  TourneySchedule %>%
-  mutate(home_id = away_id,
-         home_short_display_name = away_short_display_name) %>%
-  union(TourneySchedule) %>%
-  select(
-    TeamID = home_id, 
-    TeamName = home_short_display_name
-    ) %>% 
-  distinct()
+#TourneySchedule = 
+#  readRDS("C:/Users/khira/OneDrive/Documents/NCAAMB/NCAAMB_Schedule.rda") %>% 
+#  filter(
+#    season_type == 3 &
+#      season == 2024 &
+#      stringr::str_detect(notes_headline, "^Men's Basketball Championship") &
+#      home_short_display_name != "TBD")
+#
+#TourneyTeams = 
+#  TourneySchedule %>%
+#  mutate(home_id = away_id,
+#         home_short_display_name = away_short_display_name) %>%
+#  union(TourneySchedule) %>%
+#  select(
+#    TeamID = home_id, 
+#    TeamName = home_short_display_name
+#    ) %>% 
+#  distinct()
 
 JBPI %>%
-  filter(Season == 2023) %>%
-  left_join(TourneyTeams, by =  c("TeamID")) %>%
+  filter(Season == 2024) %>%
+#  left_join(TourneyTeams, by =  c("TeamID")) %>%
   inner_join(TeamSeasonDF, by = c("TeamID", "Season")) %>%
   transmute(
     #Rank = row_number(),
     Team = TeamName.x,
-    Tournament = 
-      case_when(
-        is.na(TeamName.y) == TRUE ~ 'N',
-        TRUE ~ 'Y'
-      ),
+#    Tournament = 
+#      case_when(
+#        is.na(TeamName.y) == TRUE ~ 'N',
+#        TRUE ~ 'Y'
+#      ),
     JBPI,
     "Opponent Strength Rating" = OpponentStrengthRating,
     "Free Throw Percentage" = FreeThrowPercentage,
-    #"Field Goal Percentage" = FieldGoalPercentage,
-    "Two Point Percentage" = TwoPointPercentage,
-    "Three Point Percentage" = ThreePointPercentage,
+    "Field Goal Percentage" = FieldGoalPercentage,
+    #"Two Point Percentage" = TwoPointPercentage,
+    #"Three Point Percentage" = ThreePointPercentage,
     #"Average Rebound Margin" = ReboundMargin,
     "Average Defensive Rebound Margin" = DefensiveReboundMargin,
     "Average Offensive Rebound Margin" = OffensiveReboundMargin,
@@ -342,9 +343,9 @@ JBPI %>%
   formatPercentage(
     c(
       "Free Throw Percentage",
-      #"Field Goal Percentage",
-      "Two Point Percentage",
-      "Three Point Percentage"
+      "Field Goal Percentage"
+      #"Two Point Percentage",
+      #"Three Point Percentage"
       ), 
     1) %>%
   formatRound(
